@@ -76,6 +76,7 @@ const BulkUploadTab = () => {
         
         const previewData: { student_code: string; student_name: string; national_id?: string; grade?: number; isValid: boolean; error?: string }[] = [];
         const seenRecords = new Set<string>();
+        const seenNationalIds = new Set<string>();
         
         for (let index = 0; index < dataRows.length; index++) {
           const row = dataRows[index];
@@ -94,7 +95,7 @@ const BulkUploadTab = () => {
             const studentCode = String(row[0]).trim();
             if (seenRecords.has(studentCode)) {
               isValid = false;
-              error = 'تكرار';
+              error = 'تكرار كود الطالب';
             }
             seenRecords.add(studentCode);
 
@@ -107,9 +108,16 @@ const BulkUploadTab = () => {
             // Check National ID (Column 3)
             if (val2 === undefined || val2 === null || String(val2).trim() === '') {
               isValid = false;
-              error = 'الرقم القومي مفقود';
+              if (error) error += ' و الرقم القومي مفقود';
+              else error = 'الرقم القومي مفقود';
             } else {
               nationalId = String(val2).trim();
+              if (seenNationalIds.has(nationalId)) {
+                isValid = false;
+                if (error) error += ' و تكرار الرقم القومي';
+                else error = 'تكرار الرقم القومي';
+              }
+              seenNationalIds.add(nationalId);
             }
 
             // Check Grade (Column 4)
@@ -210,6 +218,7 @@ const BulkUploadTab = () => {
       const processedData: { student_code: string; student_name: string; national_id?: string; grade: number }[] = [];
       const invalidRows: string[] = [];
       const seenRecords = new Set<string>();
+      const seenNationalIds = new Set<string>();
 
       for (let index = 0; index < dataRows.length; index++) {
         const row = dataRows[index];
@@ -235,6 +244,12 @@ const BulkUploadTab = () => {
            continue;
         }
         nationalId = String(val2).trim();
+
+        if (seenNationalIds.has(nationalId)) {
+           invalidRows.push(`الصف ${rowNumber}: تكرار - الرقم القومي '${nationalId}' موجود بالفعل في الملف`);
+           continue;
+        }
+        seenNationalIds.add(nationalId);
 
         // Validate Grade
         if (val3 === undefined || val3 === null || String(val3).trim() === '') {
@@ -516,10 +531,10 @@ const BulkUploadTab = () => {
               <Label htmlFor="course-select">اختر المادة</Label>
               <div className="mt-2">
                 <Select value={selectedCourseId} onValueChange={setSelectedCourseId}>
-                  <SelectTrigger id="course-select" className="text-right bg-secondary/40 border-input">
+                  <SelectTrigger id="course-select" className="text-right bg-secondary/40 border-input" dir="rtl">
                     <SelectValue placeholder="-- اختر مادة --" />
                   </SelectTrigger>
-                  <SelectContent className="bg-card border-border">
+                  <SelectContent className="bg-card border-border ">
                     {courses.map((course) => (
                       <SelectItem key={course.id} value={course.id}>
                         {course.course_name}
@@ -599,7 +614,7 @@ const BulkUploadTab = () => {
                   <div className="col-span-3">اسم الطالب</div>
                   <div className="col-span-3">الرقم القومي</div>
                   <div className="col-span-2">الدرجة</div>
-                  <div className="col-span-2">الحالة</div>
+                  <div className="col-span-2">الخطأ</div>
                 </div>
 
                 {/* Data Rows */}
