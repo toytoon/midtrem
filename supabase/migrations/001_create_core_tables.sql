@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS public.students (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
+
 -- ============================================================
 -- 2. COURSES TABLE
 -- ============================================================
@@ -84,6 +85,9 @@ ALTER TABLE public.admins ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.admin_sessions ENABLE ROW LEVEL SECURITY;
 
+-- Add national_id column if it doesn't exist
+ALTER TABLE students ADD COLUMN IF NOT EXISTS national_id VARCHAR(14);
+
 -- ============================================================
 -- 8. CREATE PASSWORD FUNCTIONS
 -- ============================================================
@@ -116,6 +120,8 @@ CREATE INDEX IF NOT EXISTS idx_grades_course_id ON public.grades(course_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_admin ON public.audit_logs(admin_code);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON public.audit_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_token ON public.admin_sessions(session_token);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_students_national_id ON students(national_id);
+
 
 -- ============================================================
 -- 10. INSERT DEFAULT ADMIN

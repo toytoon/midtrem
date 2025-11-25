@@ -101,18 +101,21 @@ export type Database = {
           id: string
           student_code: string
           student_name: string
+          national_id: string | null
         }
         Insert: {
           created_at?: string | null
           id?: string
           student_code: string
           student_name: string
+          national_id?: string | null
         }
         Update: {
           created_at?: string | null
           id?: string
           student_code?: string
           student_name?: string
+          national_id?: string | null
         }
         Relationships: []
       }

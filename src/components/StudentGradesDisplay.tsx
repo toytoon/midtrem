@@ -2,10 +2,10 @@ import { useEffect, useState, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import logo from "@/assets/logo.png";
 import { LogOut } from "lucide-react";
 
 interface CourseGrade {
@@ -89,8 +89,10 @@ export const StudentGradesDisplay = () => {
       <div className="flex flex-col items-center gap-8 w-full max-w-4xl">
         <div className="flex flex-col items-center gap-4 w-full">
           <img 
-            src={logo} 
-            alt="institute Logo" 
+            src="/logo.png" 
+            alt="institute Logo"
+            width={128}
+            height={128}
             className="w-32 h-32 object-contain rounded-full shadow-[var(--shadow-glow)]"
           />
           <h1 className="text-4xl font-bold text-foreground text-center">
@@ -114,8 +116,21 @@ export const StudentGradesDisplay = () => {
         </div>
 
         {loading ? (
-          <Card className="w-full bg-card/95 backdrop-blur-sm border-border shadow-[var(--shadow-glow)] p-8">
-            <p className="text-center text-foreground">جاري التحميل...</p>
+          <Card className="w-full bg-card/95 backdrop-blur-sm border-border shadow-[var(--shadow-glow)]">
+            <div className="p-6 space-y-6">
+              <div className="flex justify-between border-b pb-4">
+                <Skeleton className="h-6 w-12" />
+                <Skeleton className="h-6 w-32" />
+                <Skeleton className="h-6 w-24" />
+              </div>
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="flex justify-between py-4 border-b last:border-0">
+                  <Skeleton className="h-6 w-8" />
+                  <Skeleton className="h-6 w-48" />
+                  <Skeleton className="h-6 w-16" />
+                </div>
+              ))}
+            </div>
           </Card>
         ) : grades.length === 0 ? (
           <Card className="w-full bg-card/95 backdrop-blur-sm border-border shadow-[var(--shadow-glow)] p-8">

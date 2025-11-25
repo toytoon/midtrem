@@ -4,16 +4,13 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
-import logo from "@/assets/logo.png";
 import { ArrowRight, Eye, EyeOff } from "lucide-react";
 import {
-  verifyAdminPassword,
-  setAdminSession,
   getAdminSession,
-  generateSessionToken,
-  logAdminAction,
   sanitizeInput,
-} from "@/integrations/supabase/auth";
+  setAdminSession,
+  generateSessionToken,
+} from "@/integrations/supabase/auth-utils";
 
 export const AdminLogin = () => {
   const [adminCode, setAdminCode] = useState("");
@@ -54,16 +51,23 @@ export const AdminLogin = () => {
     if (!sanitizedCode || !sanitizedPassword) {
       toast({
         title: "خطأ",
-        description: "الرجاء إدخال كود المدير وكلمة المرور",
+        description: "الرجاء إدخال كود المدير و كلمة المرور",
+        variant: "destructive",
+      });
+      if (sanitizedCode && !sanitizedPassword) {
+      toast({
+        title: "خطأ",
+        description: "الرجاء إدخال كلمة المرور",
         variant: "destructive",
       });
       return;
+    }
     }
 
     if (!/^ADMIN\d{3}$/.test(sanitizedCode)) {
       toast({
         title: "تنسيق غير صحيح",
-        description: "كود المدير يجب أن يكون بالصيغة ADMIN001",
+        description: "كود المدير يجب أن يكون مثل ADMIN001",
         variant: "destructive",
       });
       return;
@@ -72,6 +76,9 @@ export const AdminLogin = () => {
     setLoading(true);
 
     try {
+      // Dynamically import heavy auth functions
+      const { verifyAdminPassword, logAdminAction } = await import("@/integrations/supabase/auth");
+
       const result = await verifyAdminPassword(sanitizedCode, sanitizedPassword);
 
       if (!result.success) {
@@ -112,7 +119,7 @@ export const AdminLogin = () => {
 
       // Generate secure session token
       const sessionToken = generateSessionToken();
-      setAdminSession(result.adminId!, result.adminName!, sessionToken);
+      setAdminSession(result.adminId!, result.adminName!, sessionToken, sanitizedCode);
 
       // Log successful login for audit trail
       await logAdminAction(sanitizedCode, "auth", "admin_login", {
@@ -155,9 +162,13 @@ export const AdminLogin = () => {
           </Button>
 
           <img 
-            src={logo} 
+            src="/logo.png" 
             alt="Institute Logo" 
             className="w-36 h-36 object-contain rounded-full shadow-[var(--shadow-glow)]"
+            fetchPriority="high"
+            loading="eager"
+            width={144}
+            height={144}
           />
           
           <div className="text-center">
@@ -181,7 +192,7 @@ export const AdminLogin = () => {
                     setAdminCode(val);
                   }
                 }}
-                className="text-right bg-secondary/50 border-border text-foreground placeholder:text-muted-foreground pr-5 pb-1 font-bold"
+                className="h-12 text-right bg-secondary/50 border-border text-foreground placeholder:text-muted-foreground pr-5 pb-1 font-bold"
                 dir="ltr"
                 disabled={isLocked}
               />
@@ -193,20 +204,27 @@ export const AdminLogin = () => {
                   type={showPassword ? "text" : "password"}
                   placeholder="كلمة المرور"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="text-right bg-secondary/50 border-border text-foreground placeholder:text-muted-foreground pr-5 pb-1 font-bold"
+                  maxLength={20}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (/^[a-zA-Z0-9]*$/.test(val)) {
+                      setPassword(val);
+                    }
+                  }}
+                  className="h-12 text-right bg-secondary/50 border-border text-foreground placeholder:text-muted-foreground pr-5 pb-1 font-bold"
                   disabled={isLocked}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground hover:text-primary transition-colors p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
                   disabled={isLocked}
+                  aria-label={showPassword ? "إخفاء كلمة المرور" : "عرض كلمة المرور"}
                 >
                   {showPassword ? (
-                    <Eye className="w-4 h-4" />
+                    <Eye className="w-5 h-5" />
                   ) : (
-                    <EyeOff className="w-4 h-4" />
+                    <EyeOff className="w-5 h-5" />
                   )}
                 </button>
               </div>
@@ -224,7 +242,7 @@ export const AdminLogin = () => {
 
             <Button 
               type="submit" 
-              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+              className="w-full h-12 bg-sky-600 hover:bg-sky-700 text-white font-bold"
               disabled={loading || isLocked}
             >
               {loading ? "جاري التحميل..." : isLocked ? "الحساب مقفول" : "الدخول"}

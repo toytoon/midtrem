@@ -3,13 +3,12 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import logo from "@/assets/logo.png";
 import { ArrowRight } from "lucide-react";
 
 export const StudentLogin = () => {
   const [studentCode, setStudentCode] = useState("");
+  const [nationalId, setNationalId] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -17,10 +16,10 @@ export const StudentLogin = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!studentCode.trim()) {
+    if (!studentCode.trim() || !nationalId.trim()) {
       toast({
         title: "خطأ",
-        description: "الرجاء إدخال  الكود الاكاديمي",
+        description: "الرجاء إدخال الكود الاكاديمي والرقم القومي",
         variant: "destructive",
       });
       return;
@@ -29,17 +28,21 @@ export const StudentLogin = () => {
     setLoading(true);
 
     try {
-      // Verify student code exists
+      // Dynamically import supabase client
+      const { supabase } = await import("@/integrations/supabase/client");
+
+      // Verify student code and national ID exist
       const { data: student, error } = await supabase
         .from("students")
         .select("*")
         .eq("student_code", studentCode.trim())
+        .eq("national_id", nationalId.trim())
         .single();
 
       if (error || !student) {
         toast({
           title: "خطأ",
-          description: " الكود الاكاديمي غير صحيح",
+          description: "الكود الاكاديمي أو الرقم القومي غير صحيح",
           variant: "destructive",
         });
         setLoading(false);
@@ -76,8 +79,12 @@ export const StudentLogin = () => {
       <Card className="w-full max-w-md bg-card/95 backdrop-blur-sm border-border shadow-[var(--shadow-glow)] p-8">
         <div className="flex flex-col items-center gap-6">
           <img
-            src={logo} 
-            alt="Institute Logo" 
+            src="/logo.png" 
+            alt="Institute Logo"
+            width={144}
+            height={144}
+            fetchPriority="high"
+            loading="eager"
             className="w-36 h-36 object-contain rounded-full shadow-[var(--shadow-glow)]"
           />
           
@@ -86,18 +93,18 @@ export const StudentLogin = () => {
               نتيجة درجات - الميد ترم
             </h1>
             <p className="text-muted-foreground">
-              الرجاء إدخال الكود الاكاديمي
+              الرجاء إدخال الكود الاكاديمي والرقم القومي
             </p>
           </div>
 
           <form onSubmit={handleLogin} className="w-full space-y-4">
-            <div>
+            <div className="space-y-4">
               <Input
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
                 maxLength={6}
-                placeholder=" الكود الاكاديمي"
+                placeholder="الكود الاكاديمي"
                 value={studentCode}
                 onChange={(e) => {
                   const value = e.target.value;
@@ -105,7 +112,24 @@ export const StudentLogin = () => {
                     setStudentCode(value);
                   }
                 }}
-                className="text-center bg-secondary/50 border-border text-foreground placeholder:text-muted-foreground  font-bold"
+                className="text-center bg-secondary/50 border-border text-foreground placeholder:text-muted-foreground font-bold"
+                dir="ltr"
+              />
+              
+              <Input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={14}
+                placeholder="الرقم القومي"
+                value={nationalId}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (/^\d*$/.test(value) && value.length <= 14) {
+                    setNationalId(value);
+                  }
+                }}
+                className="text-center bg-secondary/50 border-border text-foreground placeholder:text-muted-foreground font-bold"
                 dir="ltr"
               />
             </div>

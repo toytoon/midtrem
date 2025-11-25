@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
-import { sanitizeInput, validateGrade, logAdminAction } from "@/integrations/supabase/auth";
+import { sanitizeInput, validateGrade, logAdminAction, getAdminSession } from "@/integrations/supabase/auth";
 
 interface Grade {
   id: string;
@@ -95,6 +95,17 @@ export const GradesTab = () => {
   const totalPages = Math.ceil(totalCount / itemsPerPage);
 
   const handleAddGrade = async () => {
+    // Check session first
+    const session = getAdminSession();
+    if (!session) {
+      toast({
+        title: "خطأ",
+        description: "جلسة العمل انتهت، يرجى تسجيل الدخول مرة أخرى",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!newGrade.studentId || !newGrade.courseId || !newGrade.grade) {
       toast({
         title: "خطأ",
@@ -124,8 +135,7 @@ export const GradesTab = () => {
       if (error) throw error;
 
       // Log action
-      const adminCode = sessionStorage.getItem("adminName") || "unknown";
-      await logAdminAction(adminCode, "grades", "insert", {
+      await logAdminAction(session.adminCode, "grades", "insert", {
         student_id: newGrade.studentId,
         course_id: newGrade.courseId,
         grade: gradeNum,
@@ -150,6 +160,17 @@ export const GradesTab = () => {
   const handleUpdateGrade = async () => {
     if (!editingGrade) return;
 
+    // Check session first
+    const session = getAdminSession();
+    if (!session) {
+      toast({
+        title: "خطأ",
+        description: "جلسة العمل انتهت، يرجى تسجيل الدخول مرة أخرى",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const gradeNum = editingGrade.grade;
     if (!validateGrade(gradeNum)) {
       toast({
@@ -169,8 +190,7 @@ export const GradesTab = () => {
       if (error) throw error;
 
       // Log action
-      const adminCode = sessionStorage.getItem("adminName") || "unknown";
-      await logAdminAction(adminCode, "grades", "update", {
+      await logAdminAction(session.adminCode, "grades", "update", {
         grade_id: editingGrade.id,
         new_grade: gradeNum,
       });
@@ -189,9 +209,23 @@ export const GradesTab = () => {
   };
 
   const handleDeleteGrade = async (id: string) => {
+    // Check session first
+    const session = getAdminSession();
+    if (!session) {
+      toast({
+        title: "خطأ",
+        description: "جلسة العمل انتهت، يرجى تسجيل الدخول مرة أخرى",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       const { error } = await supabase.from("grades").delete().eq("id", id);
       if (error) throw error;
+
+      // Log action
+      await logAdminAction(session.adminCode, "grades", "delete", { id });
 
       toast({ title: "نجح", description: "تم حذف الدرجة بنجاح" });
       queryClient.invalidateQueries({ queryKey: ["grades"] });
@@ -307,7 +341,13 @@ export const GradesTab = () => {
         <Input
           placeholder="ابحث برقم الطالب..."
           value={searchCode}
-          onChange={(e) => setSearchCode(e.target.value)}
+          maxLength={6}
+          onChange={(e) => {
+            const val = e.target.value;
+            if (/^\d*$/.test(val)) {
+              setSearchCode(val);
+            }
+          }}
           className="flex-1 bg-secondary/50 border-border"
         />
         {searchCode && (

@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LogOut, Users, BookOpen, GraduationCap, Upload } from "lucide-react";
-import logo from "@/assets/logo.png";
 import { StudentsTab } from "@/components/admin/StudentsTab";
 import { CoursesTab } from "@/components/admin/CoursesTab";
 import { GradesTab } from "@/components/admin/GradesTab";
@@ -39,7 +38,7 @@ const AdminDashboard = () => {
         <div className="flex items-center justify-between bg-card/95 backdrop-blur-sm border-border shadow-[var(--shadow-glow)] p-6 rounded-lg">
           <div className="flex items-center gap-4">
             <img 
-              src={logo} 
+              src="/logo.png" 
               alt="Institute Logo" 
               className="w-16 h-16 object-contain rounded-full shadow-[var(--shadow-glow)]"
             />

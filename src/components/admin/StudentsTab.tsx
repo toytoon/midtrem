@@ -10,17 +10,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
-import { sanitizeInput, validateStudentCode, logAdminAction } from "@/integrations/supabase/auth";
+import { sanitizeInput, validateStudentCode, logAdminAction, getAdminSession } from "@/integrations/supabase/auth";
 
 interface Student {
   id: string;
   student_code: string;
   student_name: string;
+  national_id: string | null;
 }
 
 export const StudentsTab = () => {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
-  const [newStudent, setNewStudent] = useState({ code: "", name: "" });
+  const [newStudent, setNewStudent] = useState({ code: "", name: "", nationalId: "" });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [searchCode, setSearchCode] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -53,11 +54,23 @@ export const StudentsTab = () => {
   const totalPages = Math.ceil(totalCount / itemsPerPage);
 
   const handleAddStudent = async () => {
+    // Check session first
+    const session = getAdminSession();
+    if (!session) {
+      toast({
+        title: "خطأ",
+        description: "جلسة العمل انتهت، يرجى تسجيل الدخول مرة أخرى",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Sanitize inputs
     const sanitizedCode = sanitizeInput(newStudent.code);
     const sanitizedName = sanitizeInput(newStudent.name);
+    const sanitizedNationalId = sanitizeInput(newStudent.nationalId);
 
-    if (!sanitizedCode || !sanitizedName) {
+    if (!sanitizedCode || !sanitizedName || !sanitizedNationalId) {
       toast({
         title: "خطأ",
         description: "الرجاء ملء جميع الحقول",
@@ -76,28 +89,54 @@ export const StudentsTab = () => {
       return;
     }
 
+    // Validate National ID length
+    if (sanitizedNationalId.length !== 14) {
+      toast({
+        title: "خطأ",
+        description: "الرقم القومي يجب أن يتكون من 14 رقم",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from("students")
-        .insert([{ student_code: sanitizedCode, student_name: sanitizedName }]);
+        .insert([{ 
+          student_code: sanitizedCode, 
+          student_name: sanitizedName,
+          national_id: sanitizedNationalId
+        }]);
 
       if (error) throw error;
 
       // Log action
-      const adminCode = sessionStorage.getItem("adminName") || "unknown";
-      await logAdminAction(adminCode, "students", "insert", {
+      await logAdminAction(session.adminCode, "students", "insert", {
         student_code: sanitizedCode,
         student_name: sanitizedName,
+        national_id: sanitizedNationalId
       });
 
       toast({ title: "نجح", description: "تم إضافة الطالب بنجاح" });
-      setNewStudent({ code: "", name: "" });
+      setNewStudent({ code: "", name: "", nationalId: "" });
       setDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ["students"] });
     } catch (error) {
+      const dbError = error as { code?: string; message?: string };
+      console.error("Error adding student:", error);
+      let errorMessage = "حدث خطأ أثناء إضافة الطالب";
+      
+      if (dbError.code === "23505") { // Unique violation
+        errorMessage = "بيانات مكررة: الكود الاكاديمي أو الرقم القومي موجود بالفعل لطالب آخر";
+      } else if (dbError.code === "42703") { // Undefined column
+        errorMessage = "خطأ في النظام: قاعدة البيانات تحتاج إلى تحديث (عمود الرقم القومي غير موجود)";
+      } else if (dbError.message) {
+        errorMessage = dbError.message;
+      }
+
       toast({
         title: "خطأ",
-        description: "الكود الاكاديمي موجود بالفعل",
+        description: errorMessage,
         variant: "destructive",
       });
     }
@@ -106,31 +145,92 @@ export const StudentsTab = () => {
   const handleUpdateStudent = async () => {
     if (!editingStudent) return;
 
+    // Check session first
+    const session = getAdminSession();
+    if (!session) {
+      toast({
+        title: "خطأ",
+        description: "جلسة العمل انتهت، يرجى تسجيل الدخول مرة أخرى",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!editingStudent.student_code || !editingStudent.student_name || !editingStudent.national_id) {
+      toast({
+        title: "خطأ",
+        description: "الرجاء ملء جميع الحقول",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (editingStudent.national_id.length !== 14) {
+      toast({
+        title: "خطأ",
+        description: "الرقم القومي يجب أن يتكون من 14 رقم",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from("students")
         .update({
           student_code: editingStudent.student_code,
           student_name: editingStudent.student_name,
+          national_id: editingStudent.national_id
         })
         .eq("id", editingStudent.id);
 
       if (error) throw error;
+
+      // Log action
+      await logAdminAction(session.adminCode, "students", "update", {
+        id: editingStudent.id,
+        student_code: editingStudent.student_code,
+        student_name: editingStudent.student_name,
+        national_id: editingStudent.national_id
+      });
 
       toast({ title: "نجح", description: "تم تحديث الطالب بنجاح" });
       setEditingStudent(null);
       setDialogOpen(false);
       queryClient.invalidateQueries({ queryKey: ["students"] });
     } catch (error) {
+      const dbError = error as { code?: string; message?: string };
+      console.error("Error updating student:", error);
+      let errorMessage = "فشل تحديث الطالب";
+      
+      if (dbError.code === "23505") {
+        errorMessage = "بيانات مكررة: الكود الاكاديمي أو الرقم القومي موجود بالفعل لطالب آخر";
+      } else if (dbError.code === "42703") {
+        errorMessage = "خطأ في النظام: قاعدة البيانات تحتاج إلى تحديث (عمود الرقم القومي غير موجود)";
+      } else if (dbError.message) {
+        errorMessage = dbError.message;
+      }
+
       toast({
         title: "خطأ",
-        description: "فشل تحديث الطالب الكود الاكاديمي موجود بالفعل",
+        description: errorMessage,
         variant: "destructive",
       });
     }
   };
 
   const handleDeleteStudent = async (id: string) => {
+    // Check session first
+    const session = getAdminSession();
+    if (!session) {
+      toast({
+        title: "خطأ",
+        description: "جلسة العمل انتهت، يرجى تسجيل الدخول مرة أخرى",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       // First delete all grades associated with this student
       const { error: gradesError } = await supabase
@@ -147,6 +247,9 @@ export const StudentsTab = () => {
         .eq("id", id);
 
       if (error) throw error;
+
+      // Log action
+      await logAdminAction(session.adminCode, "students", "delete", { id });
 
       toast({ title: "نجح", description: "تم حذف الطالب وجميع درجاته بنجاح" });
       queryClient.invalidateQueries({ queryKey: ["students"] });
@@ -188,7 +291,7 @@ export const StudentsTab = () => {
             <Button
               onClick={() => {
                 setEditingStudent(null);
-                setNewStudent({ code: "", name: "" });
+                setNewStudent({ code: "", name: "", nationalId: "" });
               }}
               className="gap-2 bg-primary hover:bg-primary/90"
             >
@@ -226,6 +329,7 @@ export const StudentsTab = () => {
                 <Input
                   placeholder="اسم الطالب"
                   value={editingStudent ? editingStudent.student_name : newStudent.name}
+                  minLength={3}
                   maxLength={50}
                   onChange={(e) => {
                     const val = e.target.value;
@@ -238,6 +342,29 @@ export const StudentsTab = () => {
                     }
                   }}
                   className="text-right bg-secondary/50 border-border"
+                />
+              </div>
+              <div>
+                <Input
+                  placeholder="الرقم القومي"
+                  value={editingStudent ? (editingStudent.national_id || "") : newStudent.nationalId}
+                  maxLength={14}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    // Only allow numbers
+                    if (/^\d*$/.test(val)) {
+                      if (editingStudent) {
+                        setEditingStudent({ ...editingStudent, national_id: val });
+                      } else {
+                        setNewStudent({ ...newStudent, nationalId: val });
+                      }
+                    }
+                  }}
+                  className="text-right bg-secondary/50 border-border"
+                  dir="ltr"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                 />
               </div>
               <Button
@@ -255,6 +382,7 @@ export const StudentsTab = () => {
         <Input
           placeholder="ابحث برقم الطالب أو الاسم..."
           value={searchCode}
+          maxLength={50}
           onChange={(e) => setSearchCode(e.target.value)}
           className="flex-1 bg-secondary/50 border-border"
         />
@@ -275,6 +403,7 @@ export const StudentsTab = () => {
             <TableRow className="border-border">
               <TableHead className="text-right text-foreground"> الكود الاكاديمي</TableHead>
               <TableHead className="text-right text-foreground">اسم الطالب</TableHead>
+              <TableHead className="text-right text-foreground">الرقم القومي</TableHead>
               <TableHead className="text-right text-foreground">الإجراءات</TableHead>
             </TableRow>
           </TableHeader>
@@ -284,6 +413,7 @@ export const StudentsTab = () => {
                 <TableRow key={student.id} className="border-border">
                   <TableCell className="text-foreground font-mono">{student.student_code}</TableCell>
                   <TableCell className="text-foreground">{student.student_name}</TableCell>
+                  <TableCell className="text-foreground font-mono">{student.national_id || "-"}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
                       <Button
@@ -330,7 +460,7 @@ export const StudentsTab = () => {
               ))
             ) : (
               <TableRow className="border-border">
-                <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
                   {searchCode ? "لم يتم العثور على طلاب" : "لا يوجد طلاب"}
                 </TableCell>
               </TableRow>

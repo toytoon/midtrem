@@ -10,11 +10,13 @@ import * as XLSX from 'xlsx';
 import { supabase } from "@/integrations/supabase/client";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { getAdminSession, logAdminAction } from "@/integrations/supabase/auth";
 
 
 interface ExcelRow {
   student_code?: string | number;
   student_name?: string;
+  national_id?: string | number;
   course_name?: string;
   grade?: number;
 }
@@ -22,7 +24,7 @@ interface ExcelRow {
 const BulkUploadTab = () => {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const [preview, setPreview] = useState<{ student_code: string; student_name: string; grade?: number; isValid: boolean; error?: string }[]>([]);
+  const [preview, setPreview] = useState<{ student_code: string; student_name: string; national_id?: string; grade?: number; isValid: boolean; error?: string }[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -72,7 +74,7 @@ const BulkUploadTab = () => {
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
         const dataRows = jsonData.slice(1) as (string | number)[][];
         
-        const previewData: { student_code: string; student_name: string; grade?: number; isValid: boolean; error?: string }[] = [];
+        const previewData: { student_code: string; student_name: string; national_id?: string; grade?: number; isValid: boolean; error?: string }[] = [];
         const seenRecords = new Set<string>();
         
         for (let index = 0; index < dataRows.length; index++) {
@@ -81,17 +83,13 @@ const BulkUploadTab = () => {
           
           let isValid = true;
           let error = '';
-          
-          // Validation checks - 3 columns: student_code, student_name, grade
+          let nationalId: string | undefined = undefined;
+          let grade: number | undefined = undefined;
+
+          // Validation checks
           if (!row[0] || !row[1]) {
             isValid = false;
             error = 'حقول ناقصة';
-          } else if (row[2] === undefined || row[2] === null || row[2] === '') {
-            isValid = false;
-            error = 'درجة مفقودة';
-          } else if (isNaN(Number(row[2]))) {
-            isValid = false;
-            error = 'درجة غير صحيحة';
           } else {
             const studentCode = String(row[0]).trim();
             if (seenRecords.has(studentCode)) {
@@ -99,16 +97,50 @@ const BulkUploadTab = () => {
               error = 'تكرار';
             }
             seenRecords.add(studentCode);
+
+            // Check columns for National ID and Grade
+            // Format MUST be: Code, Name, National ID, Grade (4 columns)
+            
+            const val2 = row[2];
+            const val3 = row[3];
+
+            // Check National ID (Column 3)
+            if (val2 === undefined || val2 === null || String(val2).trim() === '') {
+              isValid = false;
+              error = 'الرقم القومي مفقود';
+            } else {
+              nationalId = String(val2).trim();
+            }
+
+            // Check Grade (Column 4)
+            if (val3 === undefined || val3 === null || String(val3).trim() === '') {
+              // Check if user might be using old format (Code, Name, Grade)
+              // If val2 looks like a grade and val3 is empty
+              const v2Num = Number(val2);
+              if (!isNaN(v2Num) && v2Num <= 100) {
+                 isValid = false;
+                 error = 'الرقم القومي مفقود (التنسيق القديم غير مدعوم)';
+              } else {
+                 isValid = false;
+                 if (error) error += ' و الدرجة مفقودة';
+                 else error = 'الدرجة مفقودة';
+              }
+            } else {
+              const g = Number(val3);
+              if (!isNaN(g)) {
+                grade = g;
+              } else {
+                isValid = false;
+                if (error) error += ' و درجة غير صحيحة';
+                else error = 'درجة غير صحيحة';
+              }
+            }
           }
-          
-          const gradeValue = row[2];
-          const grade = (typeof gradeValue === 'number' || (typeof gradeValue === 'string' && !isNaN(Number(gradeValue)))) 
-            ? Number(gradeValue) 
-            : undefined;
           
           previewData.push({
             student_code: String(row[0] || '').trim(),
             student_name: String(row[1] || '').trim(),
+            national_id: nationalId,
             grade: grade,
             isValid: isValid,
             error: error
@@ -133,6 +165,17 @@ const BulkUploadTab = () => {
 
   const processExcel = async () => {
     if (!file) return;
+
+    // Check session first
+    const session = getAdminSession();
+    if (!session) {
+      toast({
+        title: "خطأ",
+        description: "جلسة العمل انتهت، يرجى تسجيل الدخول مرة أخرى",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setLoading(true);
     try {
@@ -163,8 +206,8 @@ const BulkUploadTab = () => {
       const dataRows = jsonData.slice(1) as (string | number)[][];
       console.log('Data rows:', dataRows);
 
-      // Expected columns: 0: student_code, 1: student_name, 2: grade (mandatory)
-      const processedData: { student_code: string; student_name: string; grade: number }[] = [];
+      // Expected columns: 0: student_code, 1: student_name, 2: national_id (optional/mandatory), 3: grade
+      const processedData: { student_code: string; student_name: string; national_id?: string; grade: number }[] = [];
       const invalidRows: string[] = [];
       const seenRecords = new Set<string>();
 
@@ -179,19 +222,32 @@ const BulkUploadTab = () => {
           invalidRows.push(`الصف ${rowNumber}: العموديات الأولى والثانية مطلوبة (رقم الطالب، اسم الطالب)`);
           continue;
         }
-        
-        // Check if grade is provided and valid (mandatory)
-        const gradeValue = row[2];
-        if (gradeValue === undefined || gradeValue === null || gradeValue === '') {
-          invalidRows.push(`الصف ${rowNumber}: الدرجة مطلوبة - يجب إدخال درجة في العمود الثالث`);
-          continue;
+
+        let nationalId: string | undefined = undefined;
+        let gradeNumber: number | undefined = undefined;
+
+        const val2 = row[2];
+        const val3 = row[3];
+
+        // Validate National ID
+        if (val2 === undefined || val2 === null || String(val2).trim() === '') {
+           invalidRows.push(`الصف ${rowNumber}: الرقم القومي مفقود`);
+           continue;
+        }
+        nationalId = String(val2).trim();
+
+        // Validate Grade
+        if (val3 === undefined || val3 === null || String(val3).trim() === '') {
+           invalidRows.push(`الصف ${rowNumber}: الدرجة مفقودة`);
+           continue;
         }
         
-        const gradeNumber = typeof gradeValue === 'number' ? gradeValue : Number(gradeValue);
-        if (isNaN(gradeNumber)) {
-          invalidRows.push(`الصف ${rowNumber}: الدرجة يجب أن تكون رقماً صحيحاً`);
-          continue;
+        const g = Number(val3);
+        if (isNaN(g)) {
+           invalidRows.push(`الصف ${rowNumber}: الدرجة غير صحيحة`);
+           continue;
         }
+        gradeNumber = g;
         
         const studentCode = String(row[0]).trim();
         
@@ -206,6 +262,7 @@ const BulkUploadTab = () => {
         processedData.push({
           student_code: studentCode,
           student_name: String(row[1]).trim(),
+          national_id: nationalId,
           grade: gradeNumber
         });
       }
@@ -222,7 +279,7 @@ const BulkUploadTab = () => {
       }
 
       if (processedData.length === 0) {
-        throw new Error("لا توجد بيانات صحيحة في الملف - تأكد من وجود البيانات في الأعمدة الأربعة الأولى");
+        throw new Error("لا توجد بيانات صحيحة في الملف");
       }
 
       // Get existing students and courses
@@ -233,9 +290,15 @@ const BulkUploadTab = () => {
       const courseNames = new Set(existingCourses?.map(c => c.course_name) || []);
 
       // Insert new students (ignore duplicates by checking existing)
+      // Note: If student exists but has no National ID, we might want to update it?
+      // For now, we only insert new students. Updating existing students via bulk upload is complex.
       const newStudents = processedData
         .filter(row => !studentCodes.has(row.student_code))
-        .map(row => ({ student_code: row.student_code, student_name: row.student_name }));
+        .map(row => ({ 
+          student_code: row.student_code, 
+          student_name: row.student_name,
+          national_id: row.national_id
+        }));
 
       console.log('New students to insert:', newStudents);
 
@@ -288,6 +351,14 @@ const BulkUploadTab = () => {
       console.log('- New students inserted:', newStudents.length);
       console.log('- Grades inserted/updated:', gradeInserts.length);
 
+      // Log action
+      await logAdminAction(session.adminCode, "bulk_upload", "insert", {
+        course_id: selectedCourse.id,
+        total_rows: processedData.length,
+        new_students: newStudents.length,
+        grades_inserted: gradeInserts.length
+      });
+
       toast({
         title: "نجح الرفع",
         description: `تم رفع ${processedData.length} سجل (${newStudents.length} طالب جديد, ${gradeInserts.length} درجة) للمادة: ${selectedCourse.course_name}`,
@@ -317,6 +388,17 @@ const BulkUploadTab = () => {
   };
 
   const deleteCourseData = async () => {
+    // Check session first
+    const session = getAdminSession();
+    if (!session) {
+      toast({
+        title: "خطأ",
+        description: "جلسة العمل انتهت، يرجى تسجيل الدخول مرة أخرى",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!selectedCourseId) {
       toast({
         title: "تنبيه",
@@ -333,6 +415,11 @@ const BulkUploadTab = () => {
         .eq('course_id', selectedCourseId);
 
       if (error) throw error;
+
+      // Log action
+      await logAdminAction(session.adminCode, "grades", "delete_course_grades", {
+        course_id: selectedCourseId
+      });
 
       toast({
         title: "تم الحذف",
@@ -353,6 +440,17 @@ const BulkUploadTab = () => {
   };
 
   const deleteAllData = async () => {
+    // Check session first
+    const session = getAdminSession();
+    if (!session) {
+      toast({
+        title: "خطأ",
+        description: "جلسة العمل انتهت، يرجى تسجيل الدخول مرة أخرى",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       // Delete in order: grades first (due to foreign keys), then students, then courses
       // Using gt (greater than) with nil UUID is a reliable way to match all rows
@@ -364,6 +462,9 @@ const BulkUploadTab = () => {
 
       const { error: courseError } = await supabase.from('courses').delete().gt('id', '00000000-0000-0000-0000-000000000000');
       if (courseError) throw courseError;
+
+      // Log action
+      await logAdminAction(session.adminCode, "system", "delete_all_data", {});
 
       // Reset local state to reflect changes immediately
       setSelectedCourseId('');
@@ -496,8 +597,9 @@ const BulkUploadTab = () => {
                 <div className="sticky top-0 bg-gray-100 grid grid-cols-12 gap-2 px-4 py-3 text-xs font-bold text-gray-700 border-b border-gray-200">
                   <div className="col-span-2">رقم الطالب</div>
                   <div className="col-span-3">اسم الطالب</div>
+                  <div className="col-span-3">الرقم القومي</div>
                   <div className="col-span-2">الدرجة</div>
-                  <div className="col-span-2">الخطاء</div>
+                  <div className="col-span-2">الحالة</div>
                 </div>
 
                 {/* Data Rows */}
@@ -512,6 +614,7 @@ const BulkUploadTab = () => {
                   >
                     <div className="col-span-2 font-mono text-gray-700 truncate">{row.student_code || '—'}</div>
                     <div className="col-span-3 text-gray-700 truncate">{row.student_name || '—'}</div>
+                    <div className="col-span-3 font-mono text-gray-700 truncate">{row.national_id || '—'}</div>
                     <div className="col-span-2 font-semibold text-gray-700">{row.grade ?? '—'}</div>
                     <div className="col-span-2 flex items-center gap-1">
                       {row.isValid ? (
@@ -535,13 +638,14 @@ const BulkUploadTab = () => {
           <div className="bg-secondary/50 p-4 rounded-lg">
             <h3 className="font-semibold mb-2">تنسيق الملف المطلوب:</h3>
             <p className="text-sm text-muted-foreground">
-              العمود الأول:  الكود الاكاديمي<br />
+              العمود الأول: الكود الاكاديمي<br />
               العمود الثاني: اسم الطالب<br />
-              العمود الثالث: الدرجة (رقم، <span className="font-semibold text-foreground">مطلوب</span>)
+              العمود الثالث: الرقم القومي (<span className="font-semibold text-foreground">مطلوب</span>)<br />
+              العمود الرابع: الدرجة (رقم، <span className="font-semibold text-foreground">مطلوب</span>)
             </p>
             <p className="text-xs text-muted-foreground mt-2">
               * الصف الأول هو العناوين (سيتم تجاهله)<br />
-              * جميع الحقول مطلوبة بما فيها الدرجة<br />
+              * جميع الحقول مطلوبة<br />
               * لا يمكن أن يكون هناك تكرار لنفس الطالب في الملف<br />
               * يجب إضافة المواد أولاً من تبويب "المواد" قبل الرفع
             </p>

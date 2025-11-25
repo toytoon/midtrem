@@ -1,7 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
-import logo from "@/assets/logo.png";
 import { GraduationCap, UserCog } from "lucide-react";
 
 export const Welcome = () => {
@@ -15,8 +14,12 @@ export const Welcome = () => {
       <div className="flex flex-col items-center gap-8 w-full max-w-2xl">
         <div className="flex flex-col items-center gap-4">
           <img 
-            src={logo} 
-            alt="Institute Logo" 
+            src="/logo.png" 
+            alt="Institute Logo"
+            width={144}
+            height={144}
+            fetchPriority="high"
+            loading="eager"
             className="w-36 h-36 object-contain rounded-full shadow-[var(--shadow-glow)]"
           />
           <h1 className="text-4xl font-bold text-foreground text-center">

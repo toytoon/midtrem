@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import logo from "@/assets/logo.png";
 import { Home } from "lucide-react";
 
 const NotFound = () => {
@@ -22,7 +21,7 @@ const NotFound = () => {
       <Card className="w-full max-w-md bg-card/95 backdrop-blur-sm border-border shadow-[var(--shadow-glow)] p-8">
         <div className="flex flex-col items-center gap-6 text-center">
           <img
-            src={logo} 
+            src="/logo.png" 
             alt="Institute Logo" 
             className="w-32 h-32 object-contain rounded-full shadow-[var(--shadow-glow)]"
           />

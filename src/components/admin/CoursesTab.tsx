@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { getAdminSession, logAdminAction } from "@/integrations/supabase/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
@@ -36,6 +37,17 @@ export const CoursesTab = () => {
   });
 
   const handleAddCourse = async () => {
+    // Check session first
+    const session = getAdminSession();
+    if (!session) {
+      toast({
+        title: "خطأ",
+        description: "جلسة العمل انتهت، يرجى تسجيل الدخول مرة أخرى",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!newCourseName.trim()) {
       toast({
         title: "خطأ",
@@ -45,10 +57,10 @@ export const CoursesTab = () => {
       return;
     }
 
-    if (newCourseName.trim().length <= 7) {
+    if (newCourseName.trim().length <= 4) {
       toast({
         title: "خطأ",
-        description: "اسم المادة يجب أن يكون أكثر من 7 أحرف",
+        description: "اسم المادة يجب أن يكون أكثر من 4 أحرف",
         variant: "destructive",
       });
       return;
@@ -76,6 +88,11 @@ export const CoursesTab = () => {
 
       if (error) throw error;
 
+      // Log action
+      await logAdminAction(session.adminCode, "courses", "insert", {
+        course_name: trimmedName
+      });
+
       toast({ title: "نجح", description: "تم إضافة المادة بنجاح" });
       setNewCourseName("");
       setDialogOpen(false);
@@ -92,6 +109,17 @@ export const CoursesTab = () => {
   const handleUpdateCourse = async () => {
     if (!editingCourse) return;
 
+    // Check session first
+    const session = getAdminSession();
+    if (!session) {
+      toast({
+        title: "خطأ",
+        description: "جلسة العمل انتهت، يرجى تسجيل الدخول مرة أخرى",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const trimmedName = editingCourse.course_name.trim();
     if (!trimmedName) {
       toast({
@@ -102,10 +130,10 @@ export const CoursesTab = () => {
       return;
     }
 
-    if (trimmedName.length <= 7) {
+    if (trimmedName.length <= 4) {
       toast({
         title: "خطأ",
-        description: "اسم المادة يجب أن يكون أكثر من 7 أحرف",
+        description: "اسم المادة يجب أن يكون أكثر من 4 أحرف",
         variant: "destructive",
       });
       return;
@@ -134,6 +162,12 @@ export const CoursesTab = () => {
 
       if (error) throw error;
 
+      // Log action
+      await logAdminAction(session.adminCode, "courses", "update", {
+        id: editingCourse.id,
+        course_name: trimmedName
+      });
+
       toast({ title: "نجح", description: "تم تحديث المادة بنجاح" });
       setEditingCourse(null);
       setDialogOpen(false);
@@ -149,6 +183,17 @@ export const CoursesTab = () => {
   };
 
   const handleDeleteCourse = async (id: string) => {
+    // Check session first
+    const session = getAdminSession();
+    if (!session) {
+      toast({
+        title: "خطأ",
+        description: "جلسة العمل انتهت، يرجى تسجيل الدخول مرة أخرى",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       const { error } = await supabase
         .from("courses")
@@ -156,6 +201,9 @@ export const CoursesTab = () => {
         .eq("id", id);
 
       if (error) throw error;
+
+      // Log action
+      await logAdminAction(session.adminCode, "courses", "delete", { id });
 
       toast({ title: "نجح", description: "تم حذف المادة بنجاح" });
       queryClient.invalidateQueries({ queryKey: ["courses_list"] });
@@ -170,8 +218,8 @@ export const CoursesTab = () => {
   };
 
   const handleCourseNameChange = (value: string, isEditing: boolean) => {
-    // Allow only letters (Arabic/English) and spaces, max 70 chars
-    const sanitizedValue = value.replace(/[^a-zA-Z\u0600-\u06FF\s]/g, '').slice(0, 50);
+    // Allow only letters (Arabic/English) and spaces, max 40 chars
+    const sanitizedValue = value.replace(/[^a-zA-Z\u0600-\u06FF\s]/g, '').slice(0, 40);
     
     if (isEditing && editingCourse) {
       setEditingCourse({ ...editingCourse, course_name: sanitizedValue });
@@ -211,6 +259,8 @@ export const CoursesTab = () => {
               <div>
                 <Input
                   placeholder="اسم المادة"
+                  minLength={4}
+                  maxLength={40}
                   value={editingCourse ? editingCourse.course_name : newCourseName}
                   onChange={(e) => handleCourseNameChange(e.target.value, !!editingCourse)}
                   className="text-right bg-secondary/50 border-border"
