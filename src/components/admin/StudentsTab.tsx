@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -17,8 +19,6 @@ interface Student {
 }
 
 export const StudentsTab = () => {
-  const [students, setStudents] = useState<Student[]>([]);
-  const [loading, setLoading] = useState(true);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [newStudent, setNewStudent] = useState({ code: "", name: "" });
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -26,34 +26,31 @@ export const StudentsTab = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const fetchStudents = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
+  const { data, isLoading } = useQuery({
+    queryKey: ["students", currentPage, searchCode],
+    queryFn: async () => {
+      let query = supabase
         .from("students")
-        .select("*")
-        .order("student_code");
+        .select("*", { count: "exact" })
+        .order("student_code")
+        .range((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage - 1);
 
+      if (searchCode) {
+        query = query.or(`student_code.ilike.%${searchCode}%,student_name.ilike.%${searchCode}%`);
+      }
+
+      const { data, error, count } = await query;
       if (error) throw error;
-      setStudents(data || []);
-    } catch (error) {
-      toast({
-        title: "خطأ",
-        description: "فشل تحميل الطلاب",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
+      return { students: data, count };
+    },
+    placeholderData: keepPreviousData,
+  });
 
-  useEffect(() => {
-    fetchStudents();
-  }, [fetchStudents]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchCode]);
+  const students = data?.students || [];
+  const totalCount = data?.count || 0;
+  const totalPages = Math.ceil(totalCount / itemsPerPage);
 
   const handleAddStudent = async () => {
     // Sanitize inputs
@@ -73,7 +70,7 @@ export const StudentsTab = () => {
     if (!validateStudentCode(sanitizedCode)) {
       toast({
         title: "خطأ",
-        description: "كود الطالب غير صحيح (استخدم أحرف وأرقام و- أو _)",
+        description: " الكود الاكاديمي غير صحيح (استخدم أحرف وأرقام و- أو _)",
         variant: "destructive",
       });
       return;
@@ -96,11 +93,11 @@ export const StudentsTab = () => {
       toast({ title: "نجح", description: "تم إضافة الطالب بنجاح" });
       setNewStudent({ code: "", name: "" });
       setDialogOpen(false);
-      fetchStudents();
+      queryClient.invalidateQueries({ queryKey: ["students"] });
     } catch (error) {
       toast({
         title: "خطأ",
-        description: "فشل إضافة الطالب",
+        description: "الكود الاكاديمي موجود بالفعل",
         variant: "destructive",
       });
     }
@@ -123,20 +120,27 @@ export const StudentsTab = () => {
       toast({ title: "نجح", description: "تم تحديث الطالب بنجاح" });
       setEditingStudent(null);
       setDialogOpen(false);
-      fetchStudents();
+      queryClient.invalidateQueries({ queryKey: ["students"] });
     } catch (error) {
       toast({
         title: "خطأ",
-        description: "فشل تحديث الطالب",
+        description: "فشل تحديث الطالب الكود الاكاديمي موجود بالفعل",
         variant: "destructive",
       });
     }
   };
 
   const handleDeleteStudent = async (id: string) => {
-    if (!confirm("هل أنت متأكد من حذف هذا الطالب؟")) return;
-
     try {
+      // First delete all grades associated with this student
+      const { error: gradesError } = await supabase
+        .from("grades")
+        .delete()
+        .eq("student_id", id);
+
+      if (gradesError) throw gradesError;
+
+      // Then delete the student
       const { error } = await supabase
         .from("students")
         .delete()
@@ -144,9 +148,11 @@ export const StudentsTab = () => {
 
       if (error) throw error;
 
-      toast({ title: "نجح", description: "تم حذف الطالب بنجاح" });
-      fetchStudents();
+      toast({ title: "نجح", description: "تم حذف الطالب وجميع درجاته بنجاح" });
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["grades"] });
     } catch (error) {
+      console.error("Delete error:", error);
       toast({
         title: "خطأ",
         description: "فشل حذف الطالب",
@@ -155,7 +161,7 @@ export const StudentsTab = () => {
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="space-y-4">
         <div className="flex justify-between items-center">
@@ -172,18 +178,6 @@ export const StudentsTab = () => {
       </div>
     );
   }
-
-  // Filter students by code or name
-  const filteredStudents = students.filter(student =>
-    student.student_code.toLowerCase().includes(searchCode.toLowerCase()) ||
-    student.student_name.toLowerCase().includes(searchCode.toLowerCase())
-  );
-
-  // Pagination logic
-  const totalPages = Math.ceil(filteredStudents.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedStudents = filteredStudents.slice(startIndex, endIndex);
 
   return (
     <div className="space-y-4">
@@ -211,13 +205,19 @@ export const StudentsTab = () => {
             <div className="space-y-4">
               <div>
                 <Input
-                  placeholder="كود الطالب"
+                  placeholder=" الكود الاكاديمي"
                   value={editingStudent ? editingStudent.student_code : newStudent.code}
-                  onChange={(e) =>
-                    editingStudent
-                      ? setEditingStudent({ ...editingStudent, student_code: e.target.value })
-                      : setNewStudent({ ...newStudent, code: e.target.value })
-                  }
+                  maxLength={6}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (/^\d*$/.test(val)) {
+                      if (editingStudent) {
+                        setEditingStudent({ ...editingStudent, student_code: val });
+                      } else {
+                        setNewStudent({ ...newStudent, code: val });
+                      }
+                    }
+                  }}
                   className="text-right bg-secondary/50 border-border"
                   dir="ltr"
                 />
@@ -226,11 +226,17 @@ export const StudentsTab = () => {
                 <Input
                   placeholder="اسم الطالب"
                   value={editingStudent ? editingStudent.student_name : newStudent.name}
-                  onChange={(e) =>
-                    editingStudent
-                      ? setEditingStudent({ ...editingStudent, student_name: e.target.value })
-                      : setNewStudent({ ...newStudent, name: e.target.value })
-                  }
+                  maxLength={50}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (/^[a-zA-Z\u0600-\u06FF\s]*$/.test(val)) {
+                      if (editingStudent) {
+                        setEditingStudent({ ...editingStudent, student_name: val });
+                      } else {
+                        setNewStudent({ ...newStudent, name: val });
+                      }
+                    }
+                  }}
                   className="text-right bg-secondary/50 border-border"
                 />
               </div>
@@ -267,14 +273,14 @@ export const StudentsTab = () => {
         <Table>
           <TableHeader>
             <TableRow className="border-border">
-              <TableHead className="text-right text-foreground">كود الطالب</TableHead>
+              <TableHead className="text-right text-foreground"> الكود الاكاديمي</TableHead>
               <TableHead className="text-right text-foreground">اسم الطالب</TableHead>
               <TableHead className="text-right text-foreground">الإجراءات</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginatedStudents.length > 0 ? (
-              paginatedStudents.map((student) => (
+            {students.length > 0 ? (
+              students.map((student) => (
                 <TableRow key={student.id} className="border-border">
                   <TableCell className="text-foreground font-mono">{student.student_code}</TableCell>
                   <TableCell className="text-foreground">{student.student_name}</TableCell>
@@ -292,15 +298,32 @@ export const StudentsTab = () => {
                         <Pencil className="w-3 h-3" />
                         تعديل
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDeleteStudent(student.id)}
-                        className="gap-1 border-destructive text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        حذف
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1 border-destructive text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            حذف
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle className="text-right">حذف الطالب؟</AlertDialogTitle>
+                            <AlertDialogDescription className="text-right">
+                              هل أنت متأكد من حذف الطالب <span className="font-bold text-foreground">{student.student_name}</span>؟ سيتم حذف جميع درجاته أيضاً.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter className="justify-end gap-2">
+                            <AlertDialogCancel className="ml-0">إلغاء</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleDeleteStudent(student.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                              حذف
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -319,7 +342,7 @@ export const StudentsTab = () => {
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-4 py-3 bg-card/95 rounded-lg border border-border">
           <div className="text-sm text-muted-foreground">
-            الصفحة {currentPage} من {totalPages} ({filteredStudents.length} نتيجة)
+            الصفحة {currentPage} من {totalPages} ({totalCount} نتيجة)
           </div>
           <div className="flex gap-2">
             <Button
@@ -329,7 +352,7 @@ export const StudentsTab = () => {
               disabled={currentPage === 1}
               className="border-border"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronRight className="w-4 h-4" />
             </Button>
             <Button
               variant="outline"
@@ -338,7 +361,7 @@ export const StudentsTab = () => {
               disabled={currentPage === totalPages}
               className="border-border"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronLeft className="w-4 h-4" />
             </Button>
           </div>
         </div>

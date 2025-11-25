@@ -1,29 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import * as XLSX from 'xlsx';
 import { supabase } from "@/integrations/supabase/client";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 
-const scrollbarStyle = `
-  .preview-scroll::-webkit-scrollbar {
-    width: 8px;
-  }
-  .preview-scroll::-webkit-scrollbar-track {
-    background: #f0f4ff;
-    border-radius: 4px;
-  }
-  .preview-scroll::-webkit-scrollbar-thumb {
-    background: #60a5fa;
-    border-radius: 4px;
-  }
-  .preview-scroll::-webkit-scrollbar-thumb:hover {
-    background: #3b82f6;
-  }
-`;
 
 interface ExcelRow {
   student_code?: string | number;
@@ -36,23 +23,38 @@ const BulkUploadTab = () => {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<{ student_code: string; student_name: string; grade?: number; isValid: boolean; error?: string }[]>([]);
-  const [courses, setCourses] = useState<{ id: string; course_name: string }[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  // Load courses on component mount
+  // Load courses using React Query
+  const { data: courses = [] } = useQuery({
+    queryKey: ["courses_list"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('courses').select('id, course_name').order('course_name');
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Set default selected course when courses are loaded
   useEffect(() => {
-    const loadCourses = async () => {
-      const { data } = await supabase.from('courses').select('id, course_name');
-      if (data) {
-        setCourses(data);
-        if (data.length > 0) {
-          setSelectedCourseId(data[0].id);
-        }
-      }
-    };
-    loadCourses();
-  }, []);
+    if (courses.length > 0 && !selectedCourseId) {
+      setSelectedCourseId(courses[0].id);
+    }
+  }, [courses, selectedCourseId]);
+
+  const handleClearFile = () => {
+    setFile(null);
+    setPreview([]);
+    setCurrentPage(1);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -73,7 +75,7 @@ const BulkUploadTab = () => {
         const previewData: { student_code: string; student_name: string; grade?: number; isValid: boolean; error?: string }[] = [];
         const seenRecords = new Set<string>();
         
-        for (let index = 0; index < Math.min(dataRows.length, 15); index++) { // Preview first 15 rows
+        for (let index = 0; index < dataRows.length; index++) {
           const row = dataRows[index];
           const rowNumber = index + 2;
           
@@ -113,6 +115,7 @@ const BulkUploadTab = () => {
           });
         }
         setPreview(previewData);
+        setCurrentPage(1);
       } catch (error) {
         console.error('Preview error:', error);
         setPreview([]);
@@ -134,6 +137,17 @@ const BulkUploadTab = () => {
     setLoading(true);
     try {
       console.log('Starting file processing...');
+
+      // Validate that a course is selected
+      if (!selectedCourseId) {
+        throw new Error('يجب اختيار مادة أولاً');
+      }
+
+      const selectedCourse = courses.find(c => c.id === selectedCourseId);
+      if (!selectedCourse) {
+        throw new Error('المادة المختارة غير متاحة');
+      }
+
       const data = await file.arrayBuffer();
       console.log('File loaded, size:', data.byteLength);
 
@@ -237,16 +251,6 @@ const BulkUploadTab = () => {
       // Insert new courses (ignore duplicates by checking existing)
       console.log('Courses already managed in CoursesTab - no new courses created');
 
-      // Validate that a course is selected
-      if (!selectedCourseId) {
-        throw new Error('يجب اختيار مادة أولاً');
-      }
-
-      const selectedCourse = courses.find(c => c.id === selectedCourseId);
-      if (!selectedCourse) {
-        throw new Error('المادة المختارة غير متاحة');
-      }
-
       console.log('Using course:', selectedCourse.course_name);
 
       // Insert grades (all have grades now, they're mandatory)
@@ -289,8 +293,16 @@ const BulkUploadTab = () => {
         description: `تم رفع ${processedData.length} سجل (${newStudents.length} طالب جديد, ${gradeInserts.length} درجة) للمادة: ${selectedCourse.course_name}`,
       });
 
+      // Invalidate queries to refresh data in other tabs
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["students_list"] });
+      queryClient.invalidateQueries({ queryKey: ["grades"] });
+
       setFile(null);
       setPreview([]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     } catch (error: unknown) {
       console.error('Upload error:', error);
       const message = error instanceof Error ? error.message : "حدث خطأ غير معروف أثناء رفع البيانات";
@@ -304,17 +316,68 @@ const BulkUploadTab = () => {
     }
   };
 
+  const deleteCourseData = async () => {
+    if (!selectedCourseId) {
+      toast({
+        title: "تنبيه",
+        description: "الرجاء اختيار المادة التي تريد حذف بياناتها",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('grades')
+        .delete()
+        .eq('course_id', selectedCourseId);
+
+      if (error) throw error;
+
+      toast({
+        title: "تم الحذف",
+        description: "تم حذف جميع درجات المادة المحددة بنجاح",
+      });
+
+      // Invalidate queries to refresh data in other tabs
+      queryClient.invalidateQueries({ queryKey: ["grades"] });
+    } catch (error: unknown) {
+      console.error('Delete error:', error);
+      const message = error instanceof Error ? error.message : "حدث خطأ غير معروف";
+      toast({
+        title: "خطأ",
+        description: message,
+        variant: "destructive",
+      });
+    }
+  };
+
   const deleteAllData = async () => {
     try {
       // Delete in order: grades first (due to foreign keys), then students, then courses
-      const { error: gradeError } = await supabase.from('grades').delete().neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all
+      // Using gt (greater than) with nil UUID is a reliable way to match all rows
+      const { error: gradeError } = await supabase.from('grades').delete().gt('id', '00000000-0000-0000-0000-000000000000');
       if (gradeError) throw gradeError;
 
-      const { error: studentError } = await supabase.from('students').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      const { error: studentError } = await supabase.from('students').delete().gt('id', '00000000-0000-0000-0000-000000000000');
       if (studentError) throw studentError;
 
-      const { error: courseError } = await supabase.from('courses').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      const { error: courseError } = await supabase.from('courses').delete().gt('id', '00000000-0000-0000-0000-000000000000');
       if (courseError) throw courseError;
+
+      // Reset local state to reflect changes immediately
+      setSelectedCourseId('');
+      setPreview([]);
+      setFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      // Invalidate all queries to refresh data in other tabs
+      queryClient.invalidateQueries({ queryKey: ["students"] });
+      queryClient.invalidateQueries({ queryKey: ["students_list"] });
+      queryClient.invalidateQueries({ queryKey: ["courses_list"] });
+      queryClient.invalidateQueries({ queryKey: ["grades"] });
 
       toast({
         title: "تم الحذف",
@@ -331,6 +394,11 @@ const BulkUploadTab = () => {
     }
   };
 
+  const totalPages = Math.ceil(preview.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const currentData = preview.slice(startIndex, endIndex);
+
   return (
     <Card className="p-6 bg-card/95 backdrop-blur-sm border-border shadow-[var(--shadow-glow)]">
       <div className="space-y-6">
@@ -344,26 +412,28 @@ const BulkUploadTab = () => {
         <div className="space-y-4 ">
           <div className="grid grid-cols-2 gap-4 ">
             <div>
-              <Label htmlFor="course-select"  >اختر المادة</Label>
-              <select
-                id="course-select"
-                value={selectedCourseId}
-                onChange={(e) => setSelectedCourseId(e.target.value)}
-                className="flex h-10 w-full cursor-pointer rounded-lg border border-input px-3 py-2 bg-secondary/40 transition-colors md:text-sm mt-2 "
-              >
-                <option value="" className=" bg-secondary">-- اختر مادة --</option>
-                {courses.map((course) => (
-                  <option key={course.id} value={course.id} className=" bg-secondary" >
-                    {course.course_name}
-                  </option>
-                ))}
-              </select>
+              <Label htmlFor="course-select">اختر المادة</Label>
+              <div className="mt-2">
+                <Select value={selectedCourseId} onValueChange={setSelectedCourseId}>
+                  <SelectTrigger id="course-select" className="text-right bg-secondary/40 border-input">
+                    <SelectValue placeholder="-- اختر مادة --" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card border-border">
+                    {courses.map((course) => (
+                      <SelectItem key={course.id} value={course.id}>
+                        {course.course_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div>
               <Label htmlFor="excel-file">اختر ملف Excel (.xlsx)</Label>
               <Input
                 id="excel-file"
+                ref={fileInputRef}
                 type="file"
                 accept=".xlsx,.xls"
                 onChange={handleFileChange}
@@ -373,18 +443,53 @@ const BulkUploadTab = () => {
           </div>
 
           {file && (
-            <div className="text-sm text-muted-foreground">
-              الملف المختار: {file.name}
+            <div className="flex items-center justify-between bg-secondary/30 p-3 rounded-lg border border-border/50">
+              <div className="text-sm text-muted-foreground">
+                <span className="font-semibold text-foreground ml-2">الملف المختار:</span>
+                {file.name}
+              </div>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={handleClearFile}
+                className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 h-8 px-2"
+              >
+                <X className="w-4 h-4 ml-1" />
+                إزالة الملف
+              </Button>
             </div>
           )}
 
           {preview.length > 0 && (
             <div className="bg-secondary/50 border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-              <div className="bg-gradient-to-r from-blue-50 to-blue-100 px-4 py-3 border-b border-gray-200">
+              <div className="bg-gradient-to-r from-blue-50 to-blue-100 px-4 py-3 border-b border-gray-200 flex justify-between items-center">
                 <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-                  معاينة البيانات (أول 15 صف)
+                  معاينة البيانات
                   <span className="text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded-full font-medium">{preview.length} صف</span>
                 </h3>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <span className="text-sm text-gray-600">
+                    صفحة {currentPage} من {totalPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div className="preview-scroll max-h-96 overflow-y-auto bg-white">
                 {/* Header Row */}
@@ -396,9 +501,9 @@ const BulkUploadTab = () => {
                 </div>
 
                 {/* Data Rows */}
-                {preview.map((row, index) => (
+                {currentData.map((row, index) => (
                   <div 
-                    key={index} 
+                    key={startIndex + index} 
                     className={`grid grid-cols-12 gap-2 px-4 py-3 border-b border-gray-100 text-sm transition-colors ${
                       row.isValid 
                         ? 'bg-green-50 hover:bg-green-100' 
@@ -430,7 +535,7 @@ const BulkUploadTab = () => {
           <div className="bg-secondary/50 p-4 rounded-lg">
             <h3 className="font-semibold mb-2">تنسيق الملف المطلوب:</h3>
             <p className="text-sm text-muted-foreground">
-              العمود الأول: كود الطالب<br />
+              العمود الأول:  الكود الاكاديمي<br />
               العمود الثاني: اسم الطالب<br />
               العمود الثالث: الدرجة (رقم، <span className="font-semibold text-foreground">مطلوب</span>)
             </p>
@@ -442,36 +547,76 @@ const BulkUploadTab = () => {
             </p>
           </div>
 
-          <div className="flex gap-4">
-            <Button
-              onClick={processExcel}
-              disabled={!file || loading}
-              className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground"
-            >
-              {loading ? "جاري الرفع..." : "رفع البيانات"}
-            </Button>
+          <Button
+            onClick={processExcel}
+            disabled={!file || loading}
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+          >
+            {loading ? "جاري الرفع..." : "رفع البيانات"}
+          </Button>
+        </div>
 
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive" className="flex-1">
-                  حذف جميع البيانات
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle className="flex flex-row justify-start">هل أنت متأكد؟</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    سيتم حذف جميع الطلاب والمواد والدرجات نهائياً. هذا الإجراء لا يمكن التراجع عنه.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel className="mx-3" >إلغاء</AlertDialogCancel>
-                  <AlertDialogAction onClick={deleteAllData} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                    حذف
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+        <div className="border-t border-border pt-6 space-y-4">
+          <h3 className="text-lg font-semibold text-destructive flex items-center gap-2">
+            ⚠️ منطقة الخطر
+          </h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 border border-destructive/20 rounded-lg bg-destructive/5 space-y-3">
+              <h4 className="font-medium text-foreground">حذف بيانات مادة محددة</h4>
+              <p className="text-sm text-muted-foreground">
+                سيتم حذف جميع الدرجات المسجلة للمادة المختارة ({courses.find(c => c.id === selectedCourseId)?.course_name || 'لم يتم الاختيار'}).
+              </p>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" className="w-full border-destructive/50 text-destructive hover:bg-destructive/10" disabled={!selectedCourseId}>
+                    حذف بيانات المادة
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="text-right">حذف بيانات المادة؟</AlertDialogTitle>
+                    <AlertDialogDescription className="text-right">
+                      سيتم حذف جميع الدرجات المرتبطة بمادة <span className="font-bold text-destructive">"{courses.find(c => c.id === selectedCourseId)?.course_name}"</span>. هل أنت متأكد؟
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter className="justify-end gap-2">
+                    <AlertDialogCancel className="ml-0">إلغاء</AlertDialogCancel>
+                    <AlertDialogAction onClick={deleteCourseData} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                      حذف
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+
+            <div className="p-4 border border-destructive/20 rounded-lg bg-destructive/5 space-y-3">
+              <h4 className="font-medium text-foreground">حذف جميع البيانات</h4>
+              <p className="text-sm text-muted-foreground">
+                سيتم حذف جميع الطلاب والمواد والدرجات من النظام نهائياً.
+              </p>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" className="w-full">
+                    حذف الكل
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="text-right">هل أنت متأكد تماماً؟</AlertDialogTitle>
+                    <AlertDialogDescription className="text-right">
+                      سيتم حذف جميع الطلاب والمواد والدرجات نهائياً. هذا الإجراء لا يمكن التراجع عنه.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter className="justify-end gap-2">
+                    <AlertDialogCancel className="ml-0">إلغاء</AlertDialogCancel>
+                    <AlertDialogAction onClick={deleteAllData} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                      حذف الكل
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           </div>
         </div>
       </div>

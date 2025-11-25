@@ -1,0 +1,85 @@
+config:
+  target: "https://midtrem.vercel.app"
+  phases:
+    # Phase 1: Warm-up (0 → 500 users over 5 min)
+    - duration: 300
+      arrivalRate: 5
+      rampTo: 100
+      name: "Warm-up Phase (0→500 users)"
+    
+    # Phase 2: Ramp-up (500 → 2500 users over 10 min)
+    - duration: 600
+      arrivalRate: 100
+      rampTo: 250
+      name: "Ramp-up Phase (500→2500 users)"
+    
+    # Phase 3: Peak load (2500 → 5000 users over 10 min)
+    - duration: 600
+      arrivalRate: 250
+      rampTo: 500
+      name: "Peak Load Phase (2500→5000 users)"
+    
+    # Phase 4: Sustained load (5000 users for 10 min)
+    - duration: 600
+      arrivalRate: 500
+      name: "Sustained Load (5000 users)"
+    
+    # Phase 5: Cool-down (5000 → 0 users over 5 min)
+    - duration: 300
+      arrivalRate: 500
+      rampTo: 5
+      name: "Cool-down Phase"
+  
+  # More lenient thresholds for stress test
+  ensure:
+    maxErrorRate: 10  # Max 10% error rate (stress test)
+    p95: 5000         # 95th percentile response time < 5 seconds
+    p99: 10000        # 99th percentile response time < 10 seconds
+
+scenarios:
+  # Realistic student behavior (70% of traffic)
+  - name: "Student Checking Grades"
+    weight: 70
+    flow:
+      - get:
+          url: "/"
+      - think: 2
+      - get:
+          url: "/student/login"
+      - think: 3
+      - get:
+          url: "/grades"
+      - think: 5
+
+  # Quick student lookup (15% of traffic)
+  - name: "Quick Grade Check"
+    weight: 15
+    flow:
+      - get:
+          url: "/student/login"
+      - think: 1
+      - get:
+          url: "/grades"
+      - think: 2
+
+  # Admin operations (10% of traffic)
+  - name: "Admin Dashboard"
+    weight: 10
+    flow:
+      - get:
+          url: "/admin/login"
+      - think: 3
+      - get:
+          url: "/admin/dashboard"
+      - think: 10
+
+  # Homepage visitors (5% of traffic)
+  - name: "Homepage Browse"
+    weight: 5
+    flow:
+      - get:
+          url: "/"
+      - think: 3
+      - get:
+          url: "/student/login"
+      - think: 2

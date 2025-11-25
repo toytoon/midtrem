@@ -1,12 +1,14 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2 } from "lucide-react";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 
 interface Course {
   id: string;
@@ -14,42 +16,39 @@ interface Course {
 }
 
 export const CoursesTab = () => {
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [loading, setLoading] = useState(true);
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [newCourseName, setNewCourseName] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const fetchCourses = useCallback(async () => {
-    try {
+  const { data: courses = [], isLoading: loading } = useQuery({
+    queryKey: ["courses_list"],
+    queryFn: async () => {
       const { data, error } = await supabase
         .from("courses")
         .select("*")
         .order("course_name");
 
       if (error) throw error;
-      setCourses(data || []);
-    } catch (error) {
-      toast({
-        title: "خطأ",
-        description: "فشل تحميل المواد",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
-
-  useEffect(() => {
-    fetchCourses();
-  }, [fetchCourses]);
+      return data as Course[];
+    },
+  });
 
   const handleAddCourse = async () => {
     if (!newCourseName.trim()) {
       toast({
         title: "خطأ",
         description: "الرجاء إدخال اسم المادة",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (newCourseName.trim().length <= 7) {
+      toast({
+        title: "خطأ",
+        description: "اسم المادة يجب أن يكون أكثر من 7 أحرف",
         variant: "destructive",
       });
       return;
@@ -80,7 +79,7 @@ export const CoursesTab = () => {
       toast({ title: "نجح", description: "تم إضافة المادة بنجاح" });
       setNewCourseName("");
       setDialogOpen(false);
-      fetchCourses();
+      queryClient.invalidateQueries({ queryKey: ["courses_list"] });
     } catch (error) {
       toast({
         title: "خطأ",
@@ -98,6 +97,15 @@ export const CoursesTab = () => {
       toast({
         title: "خطأ",
         description: "الرجاء إدخال اسم المادة",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (trimmedName.length <= 7) {
+      toast({
+        title: "خطأ",
+        description: "اسم المادة يجب أن يكون أكثر من 7 أحرف",
         variant: "destructive",
       });
       return;
@@ -129,7 +137,8 @@ export const CoursesTab = () => {
       toast({ title: "نجح", description: "تم تحديث المادة بنجاح" });
       setEditingCourse(null);
       setDialogOpen(false);
-      fetchCourses();
+      queryClient.invalidateQueries({ queryKey: ["courses_list"] });
+      queryClient.invalidateQueries({ queryKey: ["grades"] });
     } catch (error) {
       toast({
         title: "خطأ",
@@ -140,8 +149,6 @@ export const CoursesTab = () => {
   };
 
   const handleDeleteCourse = async (id: string) => {
-    if (!confirm("هل أنت متأكد من حذف هذه المادة؟")) return;
-
     try {
       const { error } = await supabase
         .from("courses")
@@ -151,13 +158,25 @@ export const CoursesTab = () => {
       if (error) throw error;
 
       toast({ title: "نجح", description: "تم حذف المادة بنجاح" });
-      fetchCourses();
+      queryClient.invalidateQueries({ queryKey: ["courses_list"] });
+      queryClient.invalidateQueries({ queryKey: ["grades"] });
     } catch (error) {
       toast({
         title: "خطأ",
         description: "فشل حذف المادة",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleCourseNameChange = (value: string, isEditing: boolean) => {
+    // Allow only letters (Arabic/English) and spaces, max 70 chars
+    const sanitizedValue = value.replace(/[^a-zA-Z\u0600-\u06FF\s]/g, '').slice(0, 50);
+    
+    if (isEditing && editingCourse) {
+      setEditingCourse({ ...editingCourse, course_name: sanitizedValue });
+    } else {
+      setNewCourseName(sanitizedValue);
     }
   };
 
@@ -193,11 +212,7 @@ export const CoursesTab = () => {
                 <Input
                   placeholder="اسم المادة"
                   value={editingCourse ? editingCourse.course_name : newCourseName}
-                  onChange={(e) =>
-                    editingCourse
-                      ? setEditingCourse({ ...editingCourse, course_name: e.target.value })
-                      : setNewCourseName(e.target.value)
-                  }
+                  onChange={(e) => handleCourseNameChange(e.target.value, !!editingCourse)}
                   className="text-right bg-secondary/50 border-border"
                 />
               </div>
@@ -238,15 +253,32 @@ export const CoursesTab = () => {
                       <Pencil className="w-3 h-3" />
                       تعديل
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleDeleteCourse(course.id)}
-                      className="gap-1 border-destructive text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      حذف
-                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1 border-destructive text-destructive hover:bg-destructive/10"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          حذف
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="text-right">حذف المادة؟</AlertDialogTitle>
+                          <AlertDialogDescription className="text-right">
+                            سيتم حذف المادة <span className="font-bold text-destructive">"{course.course_name}"</span> .هل أنت متأكد؟
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter className="justify-end gap-2">
+                          <AlertDialogCancel className="ml-0">إلغاء</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => handleDeleteCourse(course.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                            حذف
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
                 </TableCell>
               </TableRow>

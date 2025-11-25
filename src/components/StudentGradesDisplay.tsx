@@ -20,6 +20,7 @@ interface GradeItem {
 
 export const StudentGradesDisplay = () => {
   const [studentName, setStudentName] = useState("");
+  const [studentCode, setStudentCode] = useState("");
   const [grades, setGrades] = useState<CourseGrade[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -59,6 +60,7 @@ export const StudentGradesDisplay = () => {
   useEffect(() => {
     const studentId = sessionStorage.getItem("studentId");
     const name = sessionStorage.getItem("studentName");
+    const code = sessionStorage.getItem("studentCode");
 
     if (!studentId) {
       navigate("/");
@@ -66,6 +68,7 @@ export const StudentGradesDisplay = () => {
     }
 
     setStudentName(name || "");
+    setStudentCode(code || "");
     fetchGrades(studentId);
   }, [navigate, fetchGrades]);
 
@@ -77,7 +80,6 @@ export const StudentGradesDisplay = () => {
 
   const totalGrades = grades.reduce((sum, item) => sum + item.grade, 0);
   const maxTotal = grades.length * 30;
-  const percentage = grades.length > 0 ? ((totalGrades / maxTotal) * 100).toFixed(2) : 0;
 
   return (
     <div 
@@ -94,9 +96,13 @@ export const StudentGradesDisplay = () => {
           <h1 className="text-4xl font-bold text-foreground text-center">
             درجات الطالب - الطالبة
           </h1>
-          <p className="text-xl text-foreground text-center">
-            {studentName}
-          </p>
+          <div className="text-center space-y-2">
+            <p className="text-xl text-foreground font-semibold">
+              {studentName}
+            </p>
+            <p className="text-lg text-muted-foreground">  الكود الأكاديمي : {studentCode}
+            </p>
+          </div>
           <Button
             variant="outline"
             onClick={handleLogout}
@@ -156,14 +162,10 @@ export const StudentGradesDisplay = () => {
             </Card>
 
             <Card className="w-full bg-card/95 backdrop-blur-sm border-border shadow-[var(--shadow-glow)] p-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-center">
                 <div>
                   <p className="text-muted-foreground text-sm">المجموع الكلي</p>
                   <p className="text-2xl font-bold text-primary">{totalGrades} / {maxTotal}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-sm">النسبة المئوية</p>
-                  <p className="text-2xl font-bold text-primary">{percentage}%</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-sm">عدد المواد</p>

@@ -1,0 +1,85 @@
+config:
+  target: "https://midtrem.vercel.app"
+  phases:
+    # Phase 1: Warm-up (0 → 200 users over 5 min)
+    - duration: 300
+      arrivalRate: 1
+      rampTo: 40
+      name: "Warm-up Phase (0→200 users)"
+    
+    # Phase 2: Ramp-up (200 → 1000 users over 10 min)
+    - duration: 600
+      arrivalRate: 40
+      rampTo: 100
+      name: "Ramp-up Phase (200→1000 users)"
+    
+    # Phase 3: Peak load (1000 → 2000 users over 10 min)
+    - duration: 600
+      arrivalRate: 100
+      rampTo: 200
+      name: "Peak Load Phase (1000→2000 users)"
+    
+    # Phase 4: Sustained load (2000 users for 15 min)
+    - duration: 900
+      arrivalRate: 200
+      name: "Sustained Load (2000 users)"
+    
+    # Phase 5: Cool-down (2000 → 0 users over 5 min)
+    - duration: 300
+      arrivalRate: 200
+      rampTo: 1
+      name: "Cool-down Phase"
+  
+  # Performance thresholds
+  ensure:
+    maxErrorRate: 5  # Max 5% error rate
+    p95: 3000        # 95th percentile response time < 3 seconds
+    p99: 5000        # 99th percentile response time < 5 seconds
+
+scenarios:
+  # Realistic student behavior (70% of traffic)
+  - name: "Student Checking Grades"
+    weight: 70
+    flow:
+      - get:
+          url: "/"
+      - think: 2
+      - get:
+          url: "/student/login"
+      - think: 3
+      - get:
+          url: "/grades"
+      - think: 5
+
+  # Quick student lookup (15% of traffic)
+  - name: "Quick Grade Check"
+    weight: 15
+    flow:
+      - get:
+          url: "/student/login"
+      - think: 1
+      - get:
+          url: "/grades"
+      - think: 2
+
+  # Admin operations (10% of traffic)
+  - name: "Admin Dashboard"
+    weight: 10
+    flow:
+      - get:
+          url: "/admin/login"
+      - think: 3
+      - get:
+          url: "/admin/dashboard"
+      - think: 10
+
+  # Homepage visitors (5% of traffic)
+  - name: "Homepage Browse"
+    weight: 5
+    flow:
+      - get:
+          url: "/"
+      - think: 3
+      - get:
+          url: "/student/login"
+      - think: 2

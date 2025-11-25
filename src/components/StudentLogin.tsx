@@ -20,7 +20,7 @@ export const StudentLogin = () => {
     if (!studentCode.trim()) {
       toast({
         title: "خطأ",
-        description: "الرجاء إدخال كود الطالب",
+        description: "الرجاء إدخال  الكود الاكاديمي",
         variant: "destructive",
       });
       return;
@@ -39,7 +39,7 @@ export const StudentLogin = () => {
       if (error || !student) {
         toast({
           title: "خطأ",
-          description: "كود الطالب او الطالبة  غير صحيح",
+          description: " الكود الاكاديمي غير صحيح",
           variant: "destructive",
         });
         setLoading(false);
@@ -49,9 +49,10 @@ export const StudentLogin = () => {
       // Store student info in sessionStorage
       sessionStorage.setItem("studentId", student.id);
       sessionStorage.setItem("studentName", student.student_name);
+      sessionStorage.setItem("studentCode", student.student_code);
       
       toast({
-        title: "نجح تسجيل الدخول",
+        title: "  نتائجك الدراسية",
         description: `مرحباً ${student.student_name}`,
       });
 
@@ -74,15 +75,6 @@ export const StudentLogin = () => {
     >
       <Card className="w-full max-w-md bg-card/95 backdrop-blur-sm border-border shadow-[var(--shadow-glow)] p-8">
         <div className="flex flex-col items-center gap-6">
-          {/* <Button
-            variant="ghost"
-            onClick={() => navigate("/")}
-            className="self-start gap-2 text-muted-foreground hover:text-foreground"
-          >
-            <ArrowRight className="w-4 h-4" />
-            الرجوع
-          </Button> */}
-
           <img
             src={logo} 
             alt="Institute Logo" 
@@ -94,7 +86,7 @@ export const StudentLogin = () => {
               نتيجة درجات - الميد ترم
             </h1>
             <p className="text-muted-foreground">
-              الرجاء إدخال كود االطالب او الطالبة
+              الرجاء إدخال الكود الاكاديمي
             </p>
           </div>
 
@@ -102,10 +94,18 @@ export const StudentLogin = () => {
             <div>
               <Input
                 type="text"
-                placeholder="كود الطالب"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                placeholder=" الكود الاكاديمي"
                 value={studentCode}
-                onChange={(e) => setStudentCode(e.target.value)}
-                className="text-right bg-secondary/50 border-border text-foreground placeholder:text-muted-foreground  font-bold pr-5"
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (/^\d*$/.test(value) && value.length <= 6) {
+                    setStudentCode(value);
+                  }
+                }}
+                className="text-center bg-secondary/50 border-border text-foreground placeholder:text-muted-foreground  font-bold"
                 dir="ltr"
               />
             </div>

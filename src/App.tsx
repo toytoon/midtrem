@@ -13,7 +13,16 @@ const Grades = lazy(() => import("./pages/Grades"));
 const AdminLogin = lazy(() => import("./pages/AdminLogin"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      gcTime: 10 * 60 * 1000, // 10 minutes
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 // Fallback component for lazy loading
 const LoadingFallback = () => (

@@ -9,19 +9,20 @@ export const generateSessionToken = (): string => {
 
 // Store session securely (consider using httpOnly cookies in production)
 export const setAdminSession = (adminId: string, adminName: string, token: string): void => {
-  // Never store sensitive data in localStorage, use sessionStorage with encryption in production
-  sessionStorage.setItem("adminId", adminId);
-  sessionStorage.setItem("adminName", adminName);
-  sessionStorage.setItem("adminToken", token);
-  sessionStorage.setItem("adminTokenExpiry", new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+  // Use localStorage to persist across tab closes, with short expiry
+  localStorage.setItem("adminId", adminId);
+  localStorage.setItem("adminName", adminName);
+  localStorage.setItem("adminToken", token);
+  // Set expiry to 5 minutes from now
+  localStorage.setItem("adminTokenExpiry", new Date(Date.now() + 5 * 60 * 1000).toISOString());
 };
 
 // Retrieve session safely
 export const getAdminSession = (): { adminId: string; adminName: string; token: string } | null => {
-  const adminId = sessionStorage.getItem("adminId");
-  const adminName = sessionStorage.getItem("adminName");
-  const token = sessionStorage.getItem("adminToken");
-  const expiry = sessionStorage.getItem("adminTokenExpiry");
+  const adminId = localStorage.getItem("adminId");
+  const adminName = localStorage.getItem("adminName");
+  const token = localStorage.getItem("adminToken");
+  const expiry = localStorage.getItem("adminTokenExpiry");
 
   // Check if token is expired
   if (expiry && new Date(expiry) < new Date()) {
@@ -30,6 +31,8 @@ export const getAdminSession = (): { adminId: string; adminName: string; token: 
   }
 
   if (adminId && adminName && token) {
+    // Extend session expiry on activity (sliding window)
+    localStorage.setItem("adminTokenExpiry", new Date(Date.now() + 5 * 60 * 1000).toISOString());
     return { adminId, adminName, token };
   }
 
@@ -38,10 +41,10 @@ export const getAdminSession = (): { adminId: string; adminName: string; token: 
 
 // Clear session completely
 export const clearAdminSession = (): void => {
-  sessionStorage.removeItem("adminId");
-  sessionStorage.removeItem("adminName");
-  sessionStorage.removeItem("adminToken");
-  sessionStorage.removeItem("adminTokenExpiry");
+  localStorage.removeItem("adminId");
+  localStorage.removeItem("adminName");
+  localStorage.removeItem("adminToken");
+  localStorage.removeItem("adminTokenExpiry");
 };
 
 // Verify password using Supabase bcrypt function

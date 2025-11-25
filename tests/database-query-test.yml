@@ -1,0 +1,87 @@
+config:
+  target: "https://midtrem.vercel.app"
+  phases:
+    - duration: 300
+      arrivalRate: 2
+      rampTo: 10
+      name: "Database Query Test - Warm up (5 min)"
+    - duration: 600
+      arrivalRate: 10
+      rampTo: 30
+      name: "Database Query Test - Ramp up (10 min)"
+    - duration: 600
+      arrivalRate: 30
+      name: "Database Query Test - Sustained (10 min)"
+
+
+scenarios:
+  # Student Login and Grade Check Flow (80% of traffic)
+  - name: "Student Grade Check"
+    weight: 80
+    flow:
+      # 1. Visit homepage
+      - get:
+          url: "/"
+          capture:
+            - json: "$"
+              as: "homepage"
+      
+      # Think time: User reads homepage
+      - think: 2
+      
+      # 2. Navigate to student login
+      - get:
+          url: "/student/login"
+          capture:
+            - json: "$"
+              as: "loginPage"
+      
+      # Think time: User enters student ID
+      - think: 3
+      
+      # 3. Submit student ID (simulated - actual API call would be to Supabase)
+      # Note: This tests the page load, actual database query happens client-side
+      - get:
+          url: "/grades"
+          capture:
+            - json: "$"
+              as: "gradesPage"
+      
+      # Think time: User reviews grades
+      - think: 5
+      
+      # 4. Navigate back to homepage
+      - get:
+          url: "/"
+
+  # Admin Dashboard Flow (20% of traffic)
+  - name: "Admin Dashboard Access"
+    weight: 20
+    flow:
+      # 1. Visit homepage
+      - get:
+          url: "/"
+      
+      # Think time: Admin navigates
+      - think: 1
+      
+      # 2. Navigate to admin login
+      - get:
+          url: "/admin/login"
+      
+      # Think time: Admin enters credentials
+      - think: 4
+      
+      # 3. Access admin dashboard (simulated)
+      - get:
+          url: "/admin/dashboard"
+          capture:
+            - json: "$"
+              as: "adminDashboard"
+      
+      # Think time: Admin reviews data
+      - think: 8
+      
+      # 4. Navigate back
+      - get:
+          url: "/"

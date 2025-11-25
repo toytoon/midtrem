@@ -1,0 +1,27 @@
+config:
+  target: "https://midtrem.vercel.app"
+  phases:
+    - duration: 30
+      arrivalRate: 5
+      rampTo: 20
+      name: "Verification Phase (Short)"
+  
+  ensure:
+    maxErrorRate: 5
+    p95: 3000
+
+scenarios:
+  - name: "Student Checking Grades"
+    weight: 70
+    flow:
+      - get:
+          url: "/"
+      - think: 1
+      - get:
+          url: "/student/login"
+
+  - name: "Admin Dashboard"
+    weight: 30
+    flow:
+      - get:
+          url: "/admin/login"

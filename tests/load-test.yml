@@ -1,0 +1,26 @@
+config:
+  target: "http://localhost:4173"
+  phases:
+    - duration: 300
+      arrivalRate: 5
+      rampTo: 50
+      name: "Warm up"
+    - duration: 600
+      arrivalRate: 50
+      rampTo: 100
+      name: "Ramp up load"
+    - duration: 600
+      arrivalRate: 100
+      name: "Sustained load"
+  # This tries to simulate up to ~5000 users over the duration
+  # Note: 5000 concurrent users is a lot for a single local machine to simulate.
+  # We are simulating arrival rates which will result in concurrent users depending on response time.
+
+scenarios:
+  - flow:
+      - get:
+          url: "/"
+      - think: 1
+      - get:
+          url: "/student-login"
+      - think: 2

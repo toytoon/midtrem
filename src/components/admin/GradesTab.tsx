@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -32,10 +34,6 @@ interface Course {
 }
 
 export const GradesTab = () => {
-  const [grades, setGrades] = useState<Grade[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [loading, setLoading] = useState(true);
   const [editingGrade, setEditingGrade] = useState<Grade | null>(null);
   const [newGrade, setNewGrade] = useState({ studentId: "", courseId: "", grade: "" });
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -43,44 +41,58 @@ export const GradesTab = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const fetchData = useCallback(async () => {
-    try {
-      const [gradesRes, studentsRes, coursesRes] = await Promise.all([
-        supabase.from("grades").select(`
+  // 1. Students Query (Cached heavily)
+  const { data: students = [] } = useQuery({
+    queryKey: ["students_list"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("students").select("*").order("student_code");
+      if (error) throw error;
+      return data;
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // 2. Courses Query (Cached heavily)
+  const { data: courses = [] } = useQuery({
+    queryKey: ["courses_list"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("courses").select("*").order("course_name");
+      if (error) throw error;
+      return data;
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
+  // 3. Grades Query (Paginated)
+  const { data: gradesData, isLoading } = useQuery({
+    queryKey: ["grades", currentPage, searchCode],
+    queryFn: async () => {
+      let query = supabase
+        .from("grades")
+        .select(`
           *,
-          students (student_name, student_code),
+          students!inner (student_name, student_code),
           courses (course_name)
-        `).order("created_at", { ascending: false }),
-        supabase.from("students").select("*").order("student_code"),
-        supabase.from("courses").select("*").order("course_name")
-      ]);
+        `, { count: "exact" })
+        .order("created_at", { ascending: false })
+        .range((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage - 1);
 
-      if (gradesRes.error) throw gradesRes.error;
-      if (studentsRes.error) throw studentsRes.error;
-      if (coursesRes.error) throw coursesRes.error;
+      if (searchCode) {
+        query = query.ilike("students.student_code", `%${searchCode}%`);
+      }
 
-      setGrades(gradesRes.data || []);
-      setStudents(studentsRes.data || []);
-      setCourses(coursesRes.data || []);
-    } catch (error) {
-      toast({
-        title: "خطأ",
-        description: "فشل تحميل البيانات",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
+      const { data, error, count } = await query;
+      if (error) throw error;
+      return { grades: data, count };
+    },
+    placeholderData: keepPreviousData,
+  });
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchCode]);
+  const grades = gradesData?.grades || [];
+  const totalCount = gradesData?.count || 0;
+  const totalPages = Math.ceil(totalCount / itemsPerPage);
 
   const handleAddGrade = async () => {
     if (!newGrade.studentId || !newGrade.courseId || !newGrade.grade) {
@@ -122,7 +134,7 @@ export const GradesTab = () => {
       toast({ title: "نجح", description: "تم إضافة الدرجة بنجاح" });
       setNewGrade({ studentId: "", courseId: "", grade: "" });
       setDialogOpen(false);
-      fetchData();
+      queryClient.invalidateQueries({ queryKey: ["grades"] });
     } catch (error) {
       const errorObj = error as { message?: string };
       const isConflict = errorObj.message?.includes("duplicate");
@@ -166,7 +178,7 @@ export const GradesTab = () => {
       toast({ title: "نجح", description: "تم تحديث الدرجة بنجاح" });
       setEditingGrade(null);
       setDialogOpen(false);
-      fetchData();
+      queryClient.invalidateQueries({ queryKey: ["grades"] });
     } catch (error) {
       toast({
         title: "خطأ",
@@ -177,14 +189,12 @@ export const GradesTab = () => {
   };
 
   const handleDeleteGrade = async (id: string) => {
-    if (!confirm("هل أنت متأكد من حذف هذه الدرجة؟")) return;
-
     try {
       const { error } = await supabase.from("grades").delete().eq("id", id);
       if (error) throw error;
 
       toast({ title: "نجح", description: "تم حذف الدرجة بنجاح" });
-      fetchData();
+      queryClient.invalidateQueries({ queryKey: ["grades"] });
     } catch (error) {
       toast({
         title: "خطأ",
@@ -194,7 +204,7 @@ export const GradesTab = () => {
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="space-y-4">
         <div className="flex justify-between items-center">
@@ -211,17 +221,6 @@ export const GradesTab = () => {
       </div>
     );
   }
-
-  // Filter grades by student code
-  const filteredGrades = grades.filter(grade =>
-    grade.students.student_code.toLowerCase().includes(searchCode.toLowerCase())
-  );
-
-  // Pagination logic
-  const totalPages = Math.ceil(filteredGrades.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedGrades = filteredGrades.slice(startIndex, endIndex);
 
   return (
     <div className="space-y-4">
@@ -276,16 +275,21 @@ export const GradesTab = () => {
                 </>
               )}
               <Input
-                type="number"
-                min="0"
-                max="30"
+                type="text"
+                inputMode="numeric"
+                maxLength={2}
                 placeholder="الدرجة (0-30)"
                 value={editingGrade ? editingGrade.grade : newGrade.grade}
-                onChange={(e) =>
-                  editingGrade
-                    ? setEditingGrade({ ...editingGrade, grade: parseInt(e.target.value) || 0 })
-                    : setNewGrade({ ...newGrade, grade: e.target.value })
-                }
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (/^\d*$/.test(val)) {
+                    if (editingGrade) {
+                      setEditingGrade({ ...editingGrade, grade: val === "" ? 0 : parseInt(val) });
+                    } else {
+                      setNewGrade({ ...newGrade, grade: val });
+                    }
+                  }
+                }}
                 className="text-right bg-secondary/50 border-border"
               />
               <Button
@@ -328,8 +332,8 @@ export const GradesTab = () => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paginatedGrades.length > 0 ? (
-              paginatedGrades.map((grade) => (
+            {grades.length > 0 ? (
+              grades.map((grade) => (
                 <TableRow 
                   key={grade.id} 
                   className={`border-border ${grade.grade < 15 ? 'bg-destructive/10' : ''}`}
@@ -355,22 +359,39 @@ export const GradesTab = () => {
                         <Pencil className="w-3 h-3" />
                         تعديل
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleDeleteGrade(grade.id)}
-                        className="gap-1 border-destructive text-destructive hover:bg-destructive/10"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        حذف
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1 border-destructive text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            حذف
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle className="text-right">حذف الدرجة؟</AlertDialogTitle>
+                            <AlertDialogDescription className="text-right">
+                              هل أنت متأكد من حذف درجة الطالب <span className="font-bold text-foreground">{grade.students.student_name}</span> في مادة <span className="font-bold text-foreground">{grade.courses.course_name}</span>؟
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter className="justify-end gap-2">
+                            <AlertDialogCancel className="ml-0">إلغاء</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => handleDeleteGrade(grade.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                              حذف
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </div>
                   </TableCell>
                 </TableRow>
               ))
             ) : (
               <TableRow className="border-border">
-                <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={4} className="text-center t ext-muted-foreground py-8">
                   {searchCode ? "لم يتم العثور على درجات للطالب" : "لا توجد درجات"}
                 </TableCell>
               </TableRow>
@@ -382,7 +403,7 @@ export const GradesTab = () => {
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-4 py-3 bg-card/95 rounded-lg border border-border">
           <div className="text-sm text-muted-foreground">
-            الصفحة {currentPage} من {totalPages} ({filteredGrades.length} نتيجة)
+            الصفحة {currentPage} من {totalPages} ({totalCount} نتيجة)
           </div>
           <div className="flex gap-2">
             <Button
@@ -392,7 +413,7 @@ export const GradesTab = () => {
               disabled={currentPage === 1}
               className="border-border"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronRight className="w-4 h-4" />
             </Button>
             <Button
               variant="outline"
@@ -401,7 +422,7 @@ export const GradesTab = () => {
               disabled={currentPage === totalPages}
               className="border-border"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronLeft className="w-4 h-4" />
             </Button>
           </div>
         </div>

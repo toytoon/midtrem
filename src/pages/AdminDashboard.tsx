@@ -8,26 +8,25 @@ import { StudentsTab } from "@/components/admin/StudentsTab";
 import { CoursesTab } from "@/components/admin/CoursesTab";
 import { GradesTab } from "@/components/admin/GradesTab";
 import BulkUploadTab from "@/components/admin/BulkUploadTab";
+import { getAdminSession, clearAdminSession } from "@/integrations/supabase/auth";
 
 const AdminDashboard = () => {
   const [adminName, setAdminName] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
-    const adminId = sessionStorage.getItem("adminId");
-    const name = sessionStorage.getItem("adminName");
+    const session = getAdminSession();
 
-    if (!adminId) {
+    if (!session) {
       navigate("/admin/login");
       return;
     }
 
-    setAdminName(name || "");
+    setAdminName(session.adminName);
   }, [navigate]);
 
   const handleLogout = () => {
-    sessionStorage.removeItem("adminId");
-    sessionStorage.removeItem("adminName");
+    clearAdminSession();
     navigate("/");
   };
 
@@ -79,19 +78,19 @@ const AdminDashboard = () => {
             </TabsTrigger>
           </TabsList>
           
-          <TabsContent value="students" className="mt-6">
+          <TabsContent value="students" className="mt-6 data-[state=inactive]:hidden" forceMount={true}>
             <StudentsTab />
           </TabsContent>
           
-          <TabsContent value="courses" className="mt-6">
+          <TabsContent value="courses" className="mt-6 data-[state=inactive]:hidden" forceMount={true}>
             <CoursesTab />
           </TabsContent>
           
-          <TabsContent value="grades" className="mt-6">
+          <TabsContent value="grades" className="mt-6 data-[state=inactive]:hidden" forceMount={true}>
             <GradesTab />
           </TabsContent>
           
-          <TabsContent value="upload" className="mt-6">
+          <TabsContent value="upload" className="mt-6 data-[state=inactive]:hidden" forceMount={true}>
             <BulkUploadTab />
           </TabsContent>
         </Tabs>

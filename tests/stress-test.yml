@@ -1,0 +1,15 @@
+config:
+  target: "http://localhost:4173"
+  phases:
+    - duration: 60
+      arrivalRate: 10
+      rampTo: 200
+      name: "Stress Test (1 min)"
+
+scenarios:
+  - flow:
+      - get:
+          url: "/"
+      - think: 0.5
+      - get:
+          url: "/student-login"
