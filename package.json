@@ -8,7 +8,13 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:load": "artillery run load-tests/load-test.yml",
+    "test:stress": "artillery run load-tests/stress-test.yml",
+    "test:db-queries": "artillery run load-tests/database-query-test.yml",
+    "test:2k-users": "artillery run load-tests/high-concurrency-2k.yml",
+    "test:5k-users": "artillery run load-tests/high-concurrency-5k.yml",
+    "test:all": "npm run test:db-queries && npm run test:2k-users"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -70,6 +76,7 @@
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react-swc": "^3.11.0",
+    "artillery": "^2.0.27",
     "autoprefixer": "^10.4.21",
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",
