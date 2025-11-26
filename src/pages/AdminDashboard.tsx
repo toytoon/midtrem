@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LogOut, Users, BookOpen, GraduationCap, Upload } from "lucide-react";
@@ -12,6 +12,9 @@ import { getAdminSession, clearAdminSession } from "@/integrations/supabase/auth
 const AdminDashboard = () => {
   const [adminName, setAdminName] = useState("");
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  
+  const currentTab = searchParams.get("tab") || "students";
 
   useEffect(() => {
     const session = getAdminSession();
@@ -57,7 +60,7 @@ const AdminDashboard = () => {
           </Button>
         </div>
 
-        <Tabs defaultValue="students" className="w-full" dir="rtl">
+        <Tabs value={currentTab} onValueChange={(value) => setSearchParams({ tab: value })} className="w-full" dir="rtl">
           <TabsList className="grid w-full grid-cols-4 bg-card/95 backdrop-blur-sm border-border">
             <TabsTrigger value="students" className="gap-2">
               <Users className="w-4 h-4" />

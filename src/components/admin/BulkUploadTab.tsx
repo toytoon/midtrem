@@ -553,22 +553,23 @@ const BulkUploadTab = () => {
                 type="file"
                 accept=".xlsx,.xls"
                 onChange={handleFileChange}
-                className="mt-2 cursor-pointer"
+                className="mt-2 cursor-pointer text-left"
+                dir="ltr"
               />
             </div>
           </div>
 
           {file && (
-            <div className="flex items-center justify-between bg-secondary/30 p-3 rounded-lg border border-border/50">
-              <div className="text-sm text-muted-foreground">
-                <span className="font-semibold text-foreground ml-2">الملف المختار:</span>
+            <div className="flex flex-row justify-between items-center flex-nowrap gap-4 bg-secondary/30 p-3 rounded-lg border border-border/50">
+              <div className=" flex font-semibold text-foreground mr-2">الملف المختار:</div>
+              <div className="flex text-sm font-bold text-muted-foreground flex-2">
                 {file.name}
               </div>
               <Button 
                 variant="ghost" 
                 size="sm" 
                 onClick={handleClearFile}
-                className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 h-8 px-2"
+                className="flex text-muted-foreground hover:text-destructive hover:bg-destructive/10 h-8 px-2"
               >
                 <X className="w-4 h-4 ml-1" />
                 إزالة الملف
